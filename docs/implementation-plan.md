@@ -14,7 +14,7 @@ MVP goals:
 - expose memory through VFS-style paths
 - resolve easy conflicts automatically
 - route ambiguous conflicts to human queue
-- provide retrieval API for agents + inspectable UI for humans
+- provide retrieval API for agents + backend contract for Lovable UI
 
 ## 2. Target Architecture
 
@@ -59,6 +59,7 @@ Phase 1: Ingestion + Extraction
 - add source adapters
 - implement parser and fact extractor
 - persist source provenance
+- support bulk dataset ingestion entrypoint (`POST /ingest/dataset`)
 
 Phase 2: Graph + Resolution
 - graph storage and adjacency updates

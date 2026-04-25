@@ -1,4 +1,5 @@
 from contextos.services.conflict_engine import ConflictEngine
+from contextos.services.dataset_ingestion import DatasetIngestionService
 from contextos.services.ingestion import IngestionService
 from contextos.services.metrics import MetricsService
 from contextos.services.provenance import ProvenanceService
@@ -11,6 +12,7 @@ class Container:
         repo = InMemoryRepository()
         self.repo = repo
         self.ingestion = IngestionService(repo)
+        self.dataset_ingestion = DatasetIngestionService(self.ingestion)
         self.conflicts = ConflictEngine(repo)
         self.provenance = ProvenanceService(repo)
         self.retrieval = RetrievalService(repo)

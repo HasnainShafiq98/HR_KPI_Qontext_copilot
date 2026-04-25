@@ -7,13 +7,13 @@ This repository contains an MVP boilerplate for:
 - virtual memory file system (`/static`, `/procedural`, `/trajectory`)
 - conflict resolution with human queue
 - provenance-aware retrieval for AI agents and humans
-- lightweight dashboard + graph visualization shell
+- backend APIs for a Lovable-built UI
 
 ## Project Layout
 
 - `docs/` - architecture, roadmap, and data contracts
 - `apps/api/` - FastAPI service for ingest/query/conflicts/provenance
-- `apps/web/` - minimal UI scaffold for browser/dashboard
+- `apps/web/` - legacy local UI shell (optional, UI is expected in Lovable)
 - `data/` - local raw and processed data folders
 - `scripts/` - helper scripts and dev automation
 
@@ -34,17 +34,23 @@ pip install -r requirements.txt
 uvicorn contextos.api.main:app --reload --port 8000
 ```
 
-3. Open the web shell:
+3. Ingest the provided dataset:
 
 ```bash
-cd ../../apps/web
-python3 -m http.server 8080
+make dataset-ingest
 ```
 
 Then visit:
 - API docs: `http://localhost:8000/docs`
-- UI shell: `http://localhost:8080`
 
 ## MVP Milestones
 
 See `docs/implementation-plan.md` for a phased roadmap.
+
+## Lovable UI Handoff
+
+Use `docs/lovable-handoff.md` as the contract for building the UI in Lovable against this backend.
+
+## Entire Setup
+
+Use `docs/entire-setup.md` to enable Entire CLI for Codex session checkpointing in this repo.
