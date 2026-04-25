@@ -4,7 +4,16 @@ import { ConfidencePill, SourceBadge } from "@/components/ui-bits";
 import { useEffect, useState } from "react";
 import { Check, Merge, Trash2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listConflicts, listRules, resolveConflict, type ApiConflict, type ApiRule } from "@/lib/api";
+import {
+  deleteRule,
+  fetchFactDetail,
+  listConflicts,
+  listRules,
+  resolveConflict,
+  type ApiConflict,
+  type ApiFactDetailResponse,
+  type ApiRule,
+} from "@/lib/api";
 import { toSourceLabel } from "@/lib/adapters";
 import type { UiConflict } from "@/lib/adapters";
 
@@ -34,17 +43,42 @@ function ConflictsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<UiConflict[]>([]);
+  const [escalated, setEscalated] = useState<UiConflict[]>([]);
   const [resolved, setResolved] = useState(0);
   const [rules, setRules] = useState<Rule[]>([]);
   const [createRule, setCreateRule] = useState<Record<string, boolean>>({});
+  const [factDetailsById, setFactDetailsById] = useState<Record<string, ApiFactDetailResponse>>({});
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [conflicts, backendRules] = await Promise.all([listConflicts(true), listRules()]);
-      setOpen(toUiConflictsFromCandidates(conflicts));
-      setRules(toDisplayRules(backendRules));
+      const [conflictsResponse, backendRules] = await Promise.all([
+        listConflicts({ includeCandidates: true, statuses: ["open", "escalated"], limit: 500 }),
+        listRules({ offset: 0, limit: 500 }),
+      ]);
+      const uiConflicts = toUiConflictsFromCandidates(conflictsResponse.items);
+      setOpen(uiConflicts.filter((item) => item.status === "open"));
+      setEscalated(uiConflicts.filter((item) => item.status === "escalated"));
+      setRules(toDisplayRules(backendRules.items));
+
+      const factIds = uiConflicts.flatMap((conflict) => [conflict.left.factId, conflict.right.factId]);
+      const detailPairs = await Promise.all(
+        factIds.map(async (factId) => {
+          try {
+            const detail = await fetchFactDetail(factId);
+            return [factId, detail] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const nextDetails: Record<string, ApiFactDetailResponse> = {};
+      for (const pair of detailPairs) {
+        if (!pair) continue;
+        nextDetails[pair[0]] = pair[1];
+      }
+      setFactDetailsById(nextDetails);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load conflicts");
     } finally {
@@ -57,8 +91,8 @@ function ConflictsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const resolveLive = async (c: UiConflict, side: "left" | "right" | "merge") => {
-    const selectedFactId = side === "left" ? c.left.factId : side === "right" ? c.right.factId : c.left.factId;
+  const resolveLive = async (c: UiConflict, side: "left" | "right") => {
+    const selectedFactId = side === "left" ? c.left.factId : c.right.factId;
     const shouldCreateRule = Boolean(createRule[c.id]);
 
     await resolveConflict(c.id, {
@@ -71,11 +105,21 @@ function ConflictsPage() {
     setResolved((r) => r + 1);
 
     if (shouldCreateRule) {
-      const winner = side === "left" ? c.left.source : side === "right" ? c.right.source : "Merge";
-      const loser = side === "left" ? c.right.source : c.left.source;
-      const rule = side === "merge" ? `Merge values for ${c.factKey} when sources disagree` : `${winner} > ${loser} for ${c.factKey.toLowerCase()} fields`;
-      setRules((rs) => [{ id: `r${Date.now()}`, rule, applied: 1, successRate: 1 }, ...rs]);
+      const rulesResponse = await listRules({ offset: 0, limit: 500 });
+      setRules(toDisplayRules(rulesResponse.items));
     }
+  };
+
+  const escalateLive = async (c: UiConflict) => {
+    await resolveConflict(c.id, {
+      action: "escalate",
+      escalation_reason: `Ambiguous values for ${c.factKey}`,
+      assigned_to: "human-review",
+      priority: "normal",
+      actor: "ui-user",
+    });
+    setOpen((prev) => prev.filter((x) => x.id !== c.id));
+    setEscalated((prev) => [{ ...c, status: "escalated" }, ...prev]);
   };
 
   return (
@@ -86,8 +130,9 @@ function ConflictsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <Stat label="Open Conflicts" value={open.length} tone="warning" icon={<AlertTriangle className="h-4 w-4" />} />
+        <Stat label="Escalated Queue" value={escalated.length} tone="warning" icon={<Merge className="h-4 w-4" />} />
         <Stat label="Resolved This Session" value={resolved} tone="success" icon={<Check className="h-4 w-4" />} />
         <Stat label="Rules Created" value={rules.length} tone="info" icon={<Merge className="h-4 w-4" />} />
       </div>
@@ -106,12 +151,28 @@ function ConflictsPage() {
             <ConflictCard
               key={c.id}
               conflict={c}
+              leftDetail={factDetailsById[c.left.factId]}
+              rightDetail={factDetailsById[c.right.factId]}
               createRule={!!createRule[c.id]}
               onToggleRule={(v) => setCreateRule((p) => ({ ...p, [c.id]: v }))}
               onResolve={(side) => void resolveLive(c, side)}
+              onEscalate={() => void escalateLive(c)}
             />
           ))}
       </div>
+
+      {escalated.length > 0 ? (
+        <div className="mb-8 rounded-lg border border-border bg-card">
+          <div className="px-5 py-3 border-b border-border text-sm font-medium">Escalated for Human Review</div>
+          <div className="divide-y divide-border">
+            {escalated.map((c) => (
+              <div key={c.id} className="px-5 py-3 text-xs font-mono text-muted-foreground">
+                {c.entityName} · {c.factKey} · {c.left.value} vs {c.right.value}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border flex items-center justify-between">
@@ -146,7 +207,16 @@ function ConflictsPage() {
                   </span>
                 </td>
                 <td className="px-5 py-2.5 text-right">
-                  <button onClick={() => setRules((rs) => rs.filter((x) => x.id !== r.id))} className="text-muted-foreground hover:text-destructive" title="Delete rule">
+                  <button
+                    onClick={() =>
+                      void (async () => {
+                        await deleteRule(r.id);
+                        setRules((rs) => rs.filter((x) => x.id !== r.id));
+                      })()
+                    }
+                    className="text-muted-foreground hover:text-destructive"
+                    title="Delete rule"
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </td>
@@ -163,8 +233,8 @@ function toDisplayRules(rules: ApiRule[]): Rule[] {
   return rules.map((rule) => ({
     id: rule.id,
     rule: `${rule.strategy}${rule.preferred_source_system ? ` (${rule.preferred_source_system})` : ""}${rule.predicate ? ` for ${rule.predicate}` : ""}`,
-    applied: 1,
-    successRate: 1,
+    applied: rule.usage_count,
+    successRate: rule.usage_count === 0 ? 1 : rule.success_count / Math.max(1, rule.usage_count),
   }));
 }
 
@@ -179,6 +249,7 @@ function toUiConflictsFromCandidates(conflicts: ApiConflict[]): UiConflict[] {
         entityId: leftFact.subject,
         entityName: leftFact.subject,
         type: leftFact.namespace,
+        status: conflict.status,
         factKey: leftFact.predicate,
         left: {
           value: leftFact.object_value,
@@ -212,14 +283,20 @@ function Stat({ label, value, tone, icon }: { label: string; value: number; tone
 
 function ConflictCard({
   conflict,
+  leftDetail,
+  rightDetail,
   createRule,
   onToggleRule,
   onResolve,
+  onEscalate,
 }: {
   conflict: UiConflict;
+  leftDetail?: ApiFactDetailResponse;
+  rightDetail?: ApiFactDetailResponse;
   createRule: boolean;
   onToggleRule: (v: boolean) => void;
-  onResolve: (side: "left" | "right" | "merge") => void;
+  onResolve: (side: "left" | "right") => void;
+  onEscalate: () => void;
 }) {
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -233,8 +310,8 @@ function ConflictCard({
       </div>
 
       <div className="grid md:grid-cols-2 gap-px bg-border">
-        <FactSide side={conflict.left} factKey={conflict.factKey} />
-        <FactSide side={conflict.right} factKey={conflict.factKey} />
+        <FactSide side={conflict.left} factKey={conflict.factKey} detail={leftDetail} />
+        <FactSide side={conflict.right} factKey={conflict.factKey} detail={rightDetail} />
       </div>
 
       <div className="px-5 py-3 flex flex-wrap items-center gap-2">
@@ -246,9 +323,9 @@ function ConflictCard({
           Accept Right
           <Check className="h-3.5 w-3.5" />
         </button>
-        <button onClick={() => onResolve("merge")} className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent">
+        <button onClick={onEscalate} className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent">
           <Merge className="h-3.5 w-3.5" />
-          Merge / Escalate
+          Escalate
         </button>
 
         <label className="ml-auto flex items-center gap-2 text-xs cursor-pointer">
@@ -260,7 +337,15 @@ function ConflictCard({
   );
 }
 
-function FactSide({ side, factKey }: { side: { value: string; source: string; confidence: number }; factKey: string }) {
+function FactSide({
+  side,
+  factKey,
+  detail,
+}: {
+  side: { value: string; source: string; confidence: number };
+  factKey: string;
+  detail?: ApiFactDetailResponse;
+}) {
   return (
     <div className="bg-card p-4">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono mb-1">{factKey}</div>
@@ -269,6 +354,11 @@ function FactSide({ side, factKey }: { side: { value: string; source: string; co
         <SourceBadge source={side.source} />
         <ConfidencePill value={side.confidence} />
       </div>
+      {detail?.provenance[0] ? (
+        <div className="mt-2 text-[11px] font-mono text-muted-foreground">
+          {detail.provenance[0].source_uri} · {new Date(detail.provenance[0].observed_at).toLocaleString()}
+        </div>
+      ) : null}
     </div>
   );
 }

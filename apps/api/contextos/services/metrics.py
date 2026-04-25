@@ -13,7 +13,13 @@ class MetricsService:
     def context_health(self):
         fact_status = Counter(f.status for f in self.repo.facts.values())
         total_conflicts = len(self.repo.conflicts)
-        open_conflicts = len([c for c in self.repo.conflicts.values() if c.status == ConflictStatus.OPEN])
+        open_conflicts = len(
+            [
+                c
+                for c in self.repo.conflicts.values()
+                if c.status in {ConflictStatus.OPEN, ConflictStatus.ESCALATED}
+            ]
+        )
 
         return {
             "facts_total": len(self.repo.facts),

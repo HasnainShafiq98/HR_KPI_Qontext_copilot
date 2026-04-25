@@ -133,3 +133,9 @@ def test_learned_manual_rule_gets_reused():
     assert second_conflict.auto_resolved is True
     assert second_conflict.resolution_strategy == "rule"
     assert repo.facts[second_conflict.resolved_fact_id].object_value == "Growth"
+
+    learned_rules = list(repo.rules.values())
+    assert len(learned_rules) == 1
+    assert learned_rules[0].usage_count == 1
+    assert learned_rules[0].success_count == 1
+    assert learned_rules[0].last_applied_at is not None

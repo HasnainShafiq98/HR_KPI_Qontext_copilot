@@ -5,7 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGri
 import { useEffect, useMemo, useState } from "react";
 import { CornerDownLeft, Sparkles, AlertTriangle, Activity, Database, TrendingDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getContextHealth, getIngestionProgress, listFactsUpTo, queryContext, type ApiFact } from "@/lib/api";
+import { getContextHealth, getIngestionProgress, listFactsPaged, queryContext, type ApiFact } from "@/lib/api";
 import { toSourceLabel } from "@/lib/adapters";
 
 export const Route = createFileRoute("/")({
@@ -33,6 +33,7 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [facts, setFacts] = useState<ApiFact[]>([]);
+  const [factsSampleTotal, setFactsSampleTotal] = useState(0);
   const [health, setHealth] = useState({ facts_total: 0, confidence_avg: 0, conflicts_total: 0, conflicts_open: 0, status_distribution: {} as Record<string, number> });
   const [progress, setProgress] = useState({ sources_processed: 0, facts_created: 0, conflicts_detected: 0, resolved_conflicts: 0 });
 
@@ -44,11 +45,12 @@ function DashboardPage() {
         const [healthRes, progressRes, factsRes] = await Promise.all([
           getContextHealth(),
           getIngestionProgress(),
-          listFactsUpTo({ maxItems: 2500, pageSize: 500 }),
+          listFactsPaged({ offset: 0, limit: 500 }),
         ]);
         setHealth(healthRes);
         setProgress(progressRes);
-        setFacts(factsRes);
+        setFacts(factsRes.items);
+        setFactsSampleTotal(factsRes.total);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard");
       } finally {
@@ -123,7 +125,7 @@ function DashboardPage() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-3 mb-6">
-        <Panel title="Confidence Distribution" subtitle="Atomic facts by score bucket">
+        <Panel title="Confidence Distribution" subtitle={`Atomic facts by score bucket (sample ${facts.length}/${factsSampleTotal})`}>
           <div className="h-56">
             <ResponsiveContainer>
               <BarChart data={confidenceDistribution} layout="vertical" margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>

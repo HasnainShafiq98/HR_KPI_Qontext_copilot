@@ -10,6 +10,8 @@ def setup_function():
     container.repo.facts.clear()
     container.repo.conflicts.clear()
     container.repo.rules.clear()
+    container.repo.fact_audit_log.clear()
+    container.repo.file_signatures.clear()
     container.repo.path_index.clear()
 
 
@@ -56,7 +58,8 @@ def test_conflicts_include_candidates_and_rules():
 
     conflicts_response = client.get("/conflicts?include_candidates=true")
     assert conflicts_response.status_code == 200
-    conflicts = conflicts_response.json()
+    conflicts_payload = conflicts_response.json()
+    conflicts = conflicts_payload["items"]
 
     # If it auto-resolved by authority, open queue can be empty. Otherwise validate payload shape.
     if conflicts:
@@ -66,4 +69,33 @@ def test_conflicts_include_candidates_and_rules():
     # Manual resolution path can create rules; endpoint should always be available.
     rules_response = client.get("/rules")
     assert rules_response.status_code == 200
-    assert isinstance(rules_response.json(), list)
+    rules_payload = rules_response.json()
+    assert "items" in rules_payload
+    assert isinstance(rules_payload["items"], list)
+
+
+def test_query_returns_ranked_hits_with_scores():
+    client = TestClient(app)
+
+    container.ingestion.ingest(
+        SourceRecord(
+            source_system="hrms",
+            source_type="hr",
+            source_uri="hrms://employee/301",
+            payload={"entity": "emp_301", "title": "Data Engineer"},
+        )
+    )
+    container.ingestion.ingest(
+        SourceRecord(
+            source_system="mail",
+            source_type="email",
+            source_uri="mail://thread/301",
+            payload={"entity": "emp_301", "note": "likes hiking"},
+        )
+    )
+
+    response = client.post("/query", json={"text": "emp_301 title", "limit": 5})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] >= 1
+    assert "retrieval_score" in body["hits"][0]

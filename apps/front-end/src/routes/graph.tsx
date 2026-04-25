@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { ConfidencePill, SourceBadge, NodeTypeBadge, timeAgo } from "@/components/ui-bits";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, Zap } from "lucide-react";
+import { Search, X, Zap, Network } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listFactsUpTo, type ApiFact } from "@/lib/api";
+import { fetchFactDetail, fetchFactNeighbors, getGraphStats, listFactsPaged, type ApiFact, type ApiFactDetailResponse, type ApiGraphNeighborsResponse, type ApiGraphStats } from "@/lib/api";
 import { deriveEdges, factsToEntities, type UiEdge, type UiEntity } from "@/lib/adapters";
 
 export const Route = createFileRoute("/graph")({
@@ -48,6 +48,9 @@ function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [facts, setFacts] = useState<ApiFact[]>([]);
+  const [factsTotal, setFactsTotal] = useState(0);
+  const [factsOffset, setFactsOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [search, setSearch] = useState("");
   const [activeTypes, setActiveTypes] = useState<Set<NodeType>>(new Set(TYPES));
@@ -55,13 +58,18 @@ function GraphPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
+  const [graphStats, setGraphStats] = useState<ApiGraphStats | null>(null);
+  const [neighborData, setNeighborData] = useState<ApiGraphNeighborsResponse | null>(null);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
-        setFacts(await listFactsUpTo({ maxItems: 2000, pageSize: 500 }));
+        const page = await listFactsPaged({ offset: 0, limit: 500 });
+        setFacts(page.items);
+        setFactsOffset(page.items.length);
+        setFactsTotal(page.total);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load facts");
       } finally {
@@ -69,6 +77,11 @@ function GraphPage() {
       }
     };
     void run();
+  }, []);
+
+  // Load graph stats once
+  useEffect(() => {
+    void getGraphStats().then(setGraphStats).catch(() => null);
   }, []);
 
   const sourceByFactId = useMemo(() => {
@@ -205,6 +218,30 @@ function GraphPage() {
   const visibleEdges = edges.filter((e) => filteredIds.has(e.source) && filteredIds.has(e.target));
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const selected = selectedId ? allEntities.find((e) => e.id === selectedId) : null;
+  const [selectedFactDetail, setSelectedFactDetail] = useState<ApiFactDetailResponse | null>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!selected || selected.facts.length === 0) {
+        setSelectedFactDetail(null);
+        setNeighborData(null);
+        return;
+      }
+      try {
+        const factId = selected.facts[0].id;
+        const [detail, neighbors] = await Promise.all([
+          fetchFactDetail(factId),
+          fetchFactNeighbors(factId, 2).catch(() => null),
+        ]);
+        setSelectedFactDetail(detail);
+        setNeighborData(neighbors);
+      } catch {
+        setSelectedFactDetail(null);
+        setNeighborData(null);
+      }
+    };
+    void run();
+  }, [selected]);
 
   return (
     <AppShell title="Knowledge Graph" breadcrumb="graph">
@@ -327,6 +364,57 @@ function GraphPage() {
         </div>
 
         <NodeDrawer entity={selected} edges={edges} allEntities={allEntities} onClose={() => setSelectedId(null)} />
+      </div>
+      <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        <span>
+          Loaded {facts.length.toLocaleString()} / {factsTotal.toLocaleString()} facts
+        </span>
+        {factsOffset < factsTotal ? (
+          <button
+            onClick={() => {
+              void (async () => {
+                setLoadingMore(true);
+                try {
+                  const page = await listFactsPaged({ offset: factsOffset, limit: 500 });
+                  setFacts((prev) => [...prev, ...page.items]);
+                  setFactsOffset(factsOffset + page.items.length);
+                  setFactsTotal(page.total);
+                } finally {
+                  setLoadingMore(false);
+                }
+              })();
+            }}
+            className="rounded border border-border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
+            disabled={loadingMore}
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        ) : (
+          <span>All loaded</span>
+        )}
+      </div>
+      {graphStats && (
+        <div className="mt-2 rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground flex items-center gap-4 flex-wrap">
+          <Network className="h-3.5 w-3.5 text-primary" />
+          <span><span className="font-semibold text-foreground">{graphStats.total_links.toLocaleString()}</span> graph links</span>
+          <span><span className="font-semibold text-foreground">{graphStats.connected_facts.toLocaleString()}</span> connected facts</span>
+          <span><span className="font-semibold text-foreground">{graphStats.avg_links_per_fact}</span> avg links/fact</span>
+          <span className="ml-auto">{Object.entries(graphStats.namespace_distribution).map(([ns, n]) => `${ns}: ${n}`).join(" · ")}</span>
+        </div>
+      )}
+      <div className="mt-2 rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        {selectedFactDetail?.provenance?.length ? (
+          <span>
+            Provenance: {selectedFactDetail.provenance[0].source_system} · {selectedFactDetail.provenance[0].source_uri}
+            {neighborData && neighborData.node_count > 1 && (
+              <span className="ml-4 text-primary font-semibold">
+                {neighborData.node_count - 1} linked fact{neighborData.node_count - 1 !== 1 ? "s" : ""} reachable (depth 2)
+              </span>
+            )}
+          </span>
+        ) : (
+          <span>Select a node to inspect provenance lineage and graph neighbors.</span>
+        )}
       </div>
     </AppShell>
   );

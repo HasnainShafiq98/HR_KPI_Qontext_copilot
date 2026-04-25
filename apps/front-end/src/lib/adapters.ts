@@ -13,6 +13,7 @@ export type UiEntity = {
     confidence: number;
     source: string;
     updatedAt: string;
+    status: ApiFact["status"];
     conflict?: boolean;
   }>;
 };
@@ -85,6 +86,7 @@ export function factsToEntities(facts: ApiFact[], sourceByFactId: Record<string,
       confidence: fact.confidence,
       source: toSourceLabel(fact.source_system ?? sourceByFactId[fact.id]),
       updatedAt: fact.updated_at,
+      status: fact.status,
       conflict: fact.status === "conflicted",
     });
   }
@@ -113,6 +115,7 @@ export type UiConflict = {
   entityId: string;
   entityName: string;
   type: string;
+  status?: "open" | "escalated" | "resolved";
   factKey: string;
   left: { value: string; source: string; confidence: number; factId: string };
   right: { value: string; source: string; confidence: number; factId: string };
@@ -131,6 +134,7 @@ export function toUiConflicts(conflicts: ApiConflict[], factsById: Record<string
         entityId: leftFact.subject,
         entityName: leftFact.subject,
         type: leftFact.namespace,
+        status: conflict.status,
         factKey: leftFact.predicate,
         left: {
           value: leftFact.object_value,

@@ -16,6 +16,7 @@ class Namespace(str, Enum):
 
 class ConflictStatus(str, Enum):
     OPEN = "open"
+    ESCALATED = "escalated"
     RESOLVED = "resolved"
 
 
@@ -57,6 +58,11 @@ class Conflict(BaseModel):
     resolved_fact_id: str | None = None
     auto_resolved: bool = False
     resolution_strategy: str | None = None
+    escalated_at: datetime | None = None
+    escalated_by: str | None = None
+    escalation_reason: str | None = None
+    assigned_to: str | None = None
+    priority: str = "normal"
 
 
 class ResolutionRule(BaseModel):
@@ -66,9 +72,27 @@ class ResolutionRule(BaseModel):
     predicate: str | None = None
     preferred_source_system: str | None = None
     strategy: str
+    usage_count: int = 0
+    success_count: int = 0
+    last_applied_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FactAuditEntry(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    fact_id: str
+    action: str
+    actor: str = "system"
+    reason: str | None = None
+    previous_value: str | None = None
+    new_value: str | None = None
+    previous_status: FactStatus | None = None
+    new_status: FactStatus | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RetrievalHit(BaseModel):
     fact: Fact
     staleness_flag: bool
     provenance: list[SourceRecord]
+    retrieval_score: float = 0.0
