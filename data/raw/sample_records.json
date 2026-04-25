@@ -1,0 +1,32 @@
+[
+  {
+    "source_system": "qontext",
+    "source_type": "hr",
+    "source_uri": "qontext://hr/employee/123",
+    "payload": {
+      "entity": "employee_123",
+      "name": "Asha Patel",
+      "title": "Senior Analyst",
+      "department": "Finance"
+    }
+  },
+  {
+    "source_system": "crm",
+    "source_type": "crm",
+    "source_uri": "qontext://crm/customer/acme",
+    "payload": {
+      "entity": "customer_acme",
+      "account_status": "active",
+      "segment": "enterprise"
+    }
+  },
+  {
+    "source_system": "email",
+    "source_type": "email",
+    "source_uri": "mail://thread/abc",
+    "payload": {
+      "entity": "employee_123",
+      "title": "Lead Analyst"
+    }
+  }
+]

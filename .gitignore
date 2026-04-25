@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Local data artifacts
+data/processed/*
+data/conflicts/*
+
+# Node if added later
+node_modules/
