@@ -11,9 +11,9 @@ class Container:
     def __init__(self) -> None:
         repo = InMemoryRepository()
         self.repo = repo
-        self.ingestion = IngestionService(repo)
-        self.dataset_ingestion = DatasetIngestionService(self.ingestion)
         self.conflicts = ConflictEngine(repo)
+        self.ingestion = IngestionService(repo, self.conflicts)
+        self.dataset_ingestion = DatasetIngestionService(self.ingestion)
         self.provenance = ProvenanceService(repo)
         self.retrieval = RetrievalService(repo)
         self.metrics = MetricsService(repo)

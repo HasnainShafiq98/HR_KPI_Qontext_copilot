@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from contextos.domain.models import Conflict, Fact, FactStatus, Namespace, SourceRecord
+from contextos.services.conflict_engine import ConflictEngine
 from contextos.storage.repository import InMemoryRepository
 
 
 class IngestionService:
-    def __init__(self, repo: InMemoryRepository) -> None:
+    def __init__(self, repo: InMemoryRepository, conflict_engine: ConflictEngine) -> None:
         self.repo = repo
+        self.conflict_engine = conflict_engine
 
     def ingest(self, source: SourceRecord) -> tuple[list[Fact], list[Conflict]]:
         self.repo.add_source(source)
@@ -17,17 +19,19 @@ class IngestionService:
         conflicts: list[Conflict] = []
         for fact in extracted_facts:
             existing = self._find_existing(fact.subject, fact.predicate, fact.path)
+            self.repo.add_fact(fact)
+
             if existing and existing.object_value != fact.object_value:
                 conflict = Conflict(
                     reason=f"Conflicting values for {fact.subject}.{fact.predicate}",
                     candidate_fact_ids=[existing.id, fact.id],
                 )
-                existing.status = FactStatus.CONFLICTED
-                fact.status = FactStatus.CONFLICTED
                 self.repo.add_conflict(conflict)
+                resolved, _ = self.conflict_engine.auto_resolve(conflict.id)
+                if not resolved:
+                    existing.status = FactStatus.CONFLICTED
+                    fact.status = FactStatus.CONFLICTED
                 conflicts.append(conflict)
-
-            self.repo.add_fact(fact)
 
         return extracted_facts, conflicts
 
