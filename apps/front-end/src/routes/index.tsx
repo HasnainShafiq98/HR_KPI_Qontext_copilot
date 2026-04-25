@@ -5,7 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGri
 import { useEffect, useMemo, useState } from "react";
 import { CornerDownLeft, Sparkles, AlertTriangle, Activity, Database, TrendingDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getContextHealth, getIngestionProgress, listConflicts, listFacts, queryContext, type ApiFact } from "@/lib/api";
+import { getContextHealth, getIngestionProgress, listFactsUpTo, queryContext, type ApiFact } from "@/lib/api";
 import { toSourceLabel } from "@/lib/adapters";
 
 export const Route = createFileRoute("/")({
@@ -41,7 +41,11 @@ function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const [healthRes, progressRes, factsRes] = await Promise.all([getContextHealth(), getIngestionProgress(), listFacts()]);
+        const [healthRes, progressRes, factsRes] = await Promise.all([
+          getContextHealth(),
+          getIngestionProgress(),
+          listFactsUpTo({ maxItems: 2500, pageSize: 500 }),
+        ]);
         setHealth(healthRes);
         setProgress(progressRes);
         setFacts(factsRes);

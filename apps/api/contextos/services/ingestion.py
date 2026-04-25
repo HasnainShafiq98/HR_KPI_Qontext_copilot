@@ -19,6 +19,14 @@ class IngestionService:
         conflicts: list[Conflict] = []
         for fact in extracted_facts:
             existing = self._find_existing(fact.subject, fact.predicate, fact.path)
+
+            if existing and existing.object_value == fact.object_value:
+                if source.id not in existing.source_record_ids:
+                    existing.source_record_ids.append(source.id)
+                existing.updated_at = source.observed_at
+                self.repo.save()
+                continue
+
             self.repo.add_fact(fact)
 
             if existing and existing.object_value != fact.object_value:
@@ -31,6 +39,7 @@ class IngestionService:
                 if not resolved:
                     existing.status = FactStatus.CONFLICTED
                     fact.status = FactStatus.CONFLICTED
+                    self.repo.save()
                 conflicts.append(conflict)
 
         return extracted_facts, conflicts

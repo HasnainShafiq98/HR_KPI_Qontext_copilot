@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from contextos.services.conflict_engine import ConflictEngine
 from contextos.services.dataset_ingestion import DatasetIngestionService
 from contextos.services.ingestion import IngestionService
@@ -9,7 +11,9 @@ from contextos.storage.repository import InMemoryRepository
 
 class Container:
     def __init__(self) -> None:
-        repo = InMemoryRepository()
+        repo_root = Path(__file__).resolve().parents[4]
+        state_file = repo_root / "data" / "processed" / "contextos_state.json"
+        repo = InMemoryRepository(persist_path=str(state_file))
         self.repo = repo
         self.conflicts = ConflictEngine(repo)
         self.ingestion = IngestionService(repo, self.conflicts)

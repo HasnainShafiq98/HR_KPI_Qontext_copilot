@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { ConfidencePill, SourceBadge } from "@/components/ui-bits";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Merge, Trash2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listConflicts, listFacts, resolveConflict, type ApiConflict, type ApiFact } from "@/lib/api";
-import { toUiConflicts, type UiConflict } from "@/lib/adapters";
+import { listConflicts, listRules, resolveConflict, type ApiConflict, type ApiRule } from "@/lib/api";
+import { toSourceLabel } from "@/lib/adapters";
+import type { UiConflict } from "@/lib/adapters";
 
 export const Route = createFileRoute("/conflicts")({
   head: () => ({
@@ -36,26 +37,14 @@ function ConflictsPage() {
   const [resolved, setResolved] = useState(0);
   const [rules, setRules] = useState<Rule[]>([]);
   const [createRule, setCreateRule] = useState<Record<string, boolean>>({});
-  const [factsById, setFactsById] = useState<Record<string, ApiFact>>({});
-  const [rawConflicts, setRawConflicts] = useState<ApiConflict[]>([]);
-
-  const sourceByFactId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const fact of Object.values(factsById)) {
-      map[fact.id] = "unknown";
-    }
-    return map;
-  }, [factsById]);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [conflicts, facts] = await Promise.all([listConflicts(), listFacts()]);
-      const factMap = Object.fromEntries(facts.map((f) => [f.id, f]));
-      setFactsById(factMap);
-      setRawConflicts(conflicts);
-      setOpen(toUiConflicts(conflicts, factMap, sourceByFactId));
+      const [conflicts, backendRules] = await Promise.all([listConflicts(true), listRules()]);
+      setOpen(toUiConflictsFromCandidates(conflicts));
+      setRules(toDisplayRules(backendRules));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load conflicts");
     } finally {
@@ -67,10 +56,6 @@ function ConflictsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    setOpen(toUiConflicts(rawConflicts, factsById, sourceByFactId));
-  }, [rawConflicts, factsById, sourceByFactId]);
 
   const resolveLive = async (c: UiConflict, side: "left" | "right" | "merge") => {
     const selectedFactId = side === "left" ? c.left.factId : side === "right" ? c.right.factId : c.left.factId;
@@ -172,6 +157,44 @@ function ConflictsPage() {
       </div>
     </AppShell>
   );
+}
+
+function toDisplayRules(rules: ApiRule[]): Rule[] {
+  return rules.map((rule) => ({
+    id: rule.id,
+    rule: `${rule.strategy}${rule.preferred_source_system ? ` (${rule.preferred_source_system})` : ""}${rule.predicate ? ` for ${rule.predicate}` : ""}`,
+    applied: 1,
+    successRate: 1,
+  }));
+}
+
+function toUiConflictsFromCandidates(conflicts: ApiConflict[]): UiConflict[] {
+  return conflicts
+    .map((conflict) => {
+      const leftFact = conflict.candidate_facts?.[0];
+      const rightFact = conflict.candidate_facts?.[1];
+      if (!leftFact || !rightFact) return null;
+      return {
+        id: conflict.id,
+        entityId: leftFact.subject,
+        entityName: leftFact.subject,
+        type: leftFact.namespace,
+        factKey: leftFact.predicate,
+        left: {
+          value: leftFact.object_value,
+          source: toSourceLabel(leftFact.source_system),
+          confidence: leftFact.confidence,
+          factId: leftFact.id,
+        },
+        right: {
+          value: rightFact.object_value,
+          source: toSourceLabel(rightFact.source_system),
+          confidence: rightFact.confidence,
+          factId: rightFact.id,
+        },
+      };
+    })
+    .filter((v): v is UiConflict => v !== null);
 }
 
 function Stat({ label, value, tone, icon }: { label: string; value: number; tone: "warning" | "success" | "info"; icon: React.ReactNode }) {

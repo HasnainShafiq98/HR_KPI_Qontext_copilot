@@ -31,6 +31,7 @@ export type ApiFact = {
   source_record_ids: string[];
   linked_fact_ids: string[];
   updated_at: string;
+  source_system?: string;
 };
 
 export type ApiConflict = {
@@ -42,6 +43,16 @@ export type ApiConflict = {
   auto_resolved?: boolean;
   resolution_strategy?: string | null;
   created_at: string;
+  candidate_facts?: ApiFact[];
+};
+
+export type ApiRule = {
+  id: string;
+  name: string;
+  namespace: "static" | "procedural" | "trajectory" | null;
+  predicate: string | null;
+  preferred_source_system: string | null;
+  strategy: string;
 };
 
 export type ApiContextHealth = {
@@ -87,6 +98,13 @@ export type ApiQueryResponse = {
   }>;
 };
 
+export type ApiPagedFactsResponse = {
+  items: ApiFact[];
+  total: number;
+  offset: number;
+  limit: number;
+};
+
 export async function getContextHealth(): Promise<ApiContextHealth> {
   return request<ApiContextHealth>("/metrics/context-health");
 }
@@ -100,8 +118,55 @@ export async function listFacts(namespace?: string): Promise<ApiFact[]> {
   return request<ApiFact[]>(`/facts${query}`);
 }
 
-export async function listConflicts(): Promise<ApiConflict[]> {
-  return request<ApiConflict[]>("/conflicts");
+export async function listFactsPaged(params?: {
+  namespace?: string;
+  subject?: string;
+  predicate?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<ApiPagedFactsResponse> {
+  const search = new URLSearchParams();
+  if (params?.namespace) search.set("namespace", params.namespace);
+  if (params?.subject) search.set("subject", params.subject);
+  if (params?.predicate) search.set("predicate", params.predicate);
+  if (typeof params?.offset === "number") search.set("offset", String(params.offset));
+  if (typeof params?.limit === "number") search.set("limit", String(params.limit));
+  const query = search.toString();
+  return request<ApiPagedFactsResponse>(`/facts/paged${query ? `?${query}` : ""}`);
+}
+
+export async function listFactsUpTo(params?: {
+  namespace?: string;
+  subject?: string;
+  predicate?: string;
+  maxItems?: number;
+  pageSize?: number;
+}): Promise<ApiFact[]> {
+  const maxItems = params?.maxItems ?? 3000;
+  const pageSize = Math.max(1, Math.min(params?.pageSize ?? 500, 5000));
+
+  const all: ApiFact[] = [];
+  let offset = 0;
+  while (all.length < maxItems) {
+    const page = await listFactsPaged({
+      namespace: params?.namespace,
+      subject: params?.subject,
+      predicate: params?.predicate,
+      offset,
+      limit: pageSize,
+    });
+    all.push(...page.items);
+    offset += page.items.length;
+    if (page.items.length === 0 || offset >= page.total) {
+      break;
+    }
+  }
+  return all.slice(0, maxItems);
+}
+
+export async function listConflicts(includeCandidates = false): Promise<ApiConflict[]> {
+  const query = includeCandidates ? "?include_candidates=true" : "";
+  return request<ApiConflict[]>(`/conflicts${query}`);
 }
 
 export async function runDatasetIngest(rootPath = "data/Dataset"): Promise<ApiDatasetIngestResponse> {
@@ -122,6 +187,10 @@ export async function resolveConflict(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function listRules(): Promise<ApiRule[]> {
+  return request<ApiRule[]>("/rules");
 }
 
 export async function queryContext(text: string): Promise<ApiQueryResponse> {

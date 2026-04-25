@@ -4,7 +4,7 @@ import { ConfidencePill, SourceBadge, NodeTypeBadge, timeAgo } from "@/component
 import { useMemo, useState, useEffect } from "react";
 import { ChevronRight, Folder, FolderOpen, FileText, Pencil, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listFacts, type ApiFact } from "@/lib/api";
+import { listFactsUpTo, type ApiFact } from "@/lib/api";
 import { factsToEntities, type UiEntity } from "@/lib/adapters";
 
 export const Route = createFileRoute("/fs")({
@@ -43,7 +43,7 @@ function FsPage() {
       setLoading(true);
       setError(null);
       try {
-        const allFacts = await listFacts();
+        const allFacts = await listFactsUpTo({ maxItems: 3000, pageSize: 500 });
         setFacts(allFacts);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load facts");

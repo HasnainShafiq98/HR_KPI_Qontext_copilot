@@ -28,6 +28,29 @@ class DatasetIngestResponse(BaseModel):
     extensions: list[str]
     files_scanned: int
     files_processed: int
+    files_changed: int
+    files_unchanged: int
+    sources_ingested: int
+    facts_created: int
+    conflicts_created: int
+    files_skipped: list[str]
+    errors: list[dict]
+
+
+class SyncDatasetRequest(BaseModel):
+    root_path: str = "data/Dataset"
+    include_extensions: list[str] = Field(default_factory=lambda: ["json", "csv", "pdf"])
+    max_files: int | None = None
+    max_records_per_file: int | None = None
+
+
+class SyncDatasetResponse(BaseModel):
+    root_path: str
+    extensions: list[str]
+    files_scanned: int
+    files_processed: int
+    files_changed: int
+    files_unchanged: int
     sources_ingested: int
     facts_created: int
     conflicts_created: int

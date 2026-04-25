@@ -91,6 +91,7 @@ class ConflictEngine:
         conflict.resolved_fact_id = selected_fact_id
         conflict.auto_resolved = auto_resolved
         conflict.resolution_strategy = strategy
+        self.repo.save()
 
     def _resolve_by_rule(self, candidates) -> str | None:
         if not candidates:
