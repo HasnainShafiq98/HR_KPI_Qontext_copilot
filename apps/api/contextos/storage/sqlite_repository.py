@@ -1,19 +1,45 @@
+"""SQLite-backed repository for ContextOS.
+
+Drop-in replacement for InMemoryRepository. All data is serialised as JSON
+and persisted into a lightweight SQLite database.  The schema is intentionally
+simple: one ``kv_store`` table keyed by collection name.
+
+Usage (env-driven)::
+
+    CONTEXTOS_STORAGE_BACKEND=sqlite
+    CONTEXTOS_STATE_FILE=/path/to/contextos.sqlite
+
+The container will pick the right backend based on the env vars.
+"""
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
-from json import JSONDecodeError
 from pathlib import Path
-import json
 
 from pydantic import ValidationError
 
 from contextos.domain.models import Conflict, Fact, FactAuditEntry, ResolutionRule, SourceRecord
 
 
-class InMemoryRepository:
-    def __init__(self, persist_path: str | None = None) -> None:
-        self.persist_path = Path(persist_path) if persist_path else None
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kv_store (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+
+class SqliteRepository:
+    """SQLite-backed repository compatible with InMemoryRepository."""
+
+    def __init__(self, db_path: str) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # In-memory caches
         self.sources: dict[str, SourceRecord] = {}
         self.facts: dict[str, Fact] = {}
         self.conflicts: dict[str, Conflict] = {}
@@ -23,11 +49,18 @@ class InMemoryRepository:
         self.file_signatures: dict[str, int] = {}
         self.integrity_report: dict[str, str | bool | None] = {
             "ok": True,
-            "message": "state file loaded",
+            "message": "sqlite state loaded",
             "backup_path": None,
         }
-        if self.persist_path:
-            self._load()
+
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn.execute(_SCHEMA)
+        self._conn.commit()
+        self._load()
+
+    # ------------------------------------------------------------------
+    # Public mutating API (same surface as InMemoryRepository)
+    # ------------------------------------------------------------------
 
     def add_source(self, source: SourceRecord) -> None:
         self.sources[source.id] = source
@@ -64,29 +97,38 @@ class InMemoryRepository:
     def get_file_signature(self, file_path: str) -> int | None:
         return self.file_signatures.get(file_path)
 
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
     def save(self) -> None:
-        if not self.persist_path:
-            return
-        self.persist_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "sources": {k: v.model_dump(mode="json") for k, v in self.sources.items()},
             "facts": {k: v.model_dump(mode="json") for k, v in self.facts.items()},
             "conflicts": {k: v.model_dump(mode="json") for k, v in self.conflicts.items()},
             "rules": {k: v.model_dump(mode="json") for k, v in self.rules.items()},
             "fact_audit_log": {
-                k: [entry.model_dump(mode="json") for entry in entries]
+                k: [e.model_dump(mode="json") for e in entries]
                 for k, entries in self.fact_audit_log.items()
             },
-            "path_index": {k: v for k, v in self.path_index.items()},
+            "path_index": dict(self.path_index),
             "file_signatures": self.file_signatures,
         }
-        self.persist_path.write_text(json.dumps(data), encoding="utf-8")
+        json_blob = json.dumps(data)
+        self._conn.execute(
+            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
+            ("state", json_blob),
+        )
+        self._conn.commit()
 
     def _load(self) -> None:
-        if not self.persist_path or not self.persist_path.exists():
+        row = self._conn.execute(
+            "SELECT value FROM kv_store WHERE key = 'state'"
+        ).fetchone()
+        if row is None:
             return
         try:
-            raw = json.loads(self.persist_path.read_text(encoding="utf-8"))
+            raw = json.loads(row[0])
             self.sources = {k: SourceRecord(**v) for k, v in raw.get("sources", {}).items()}
             self.facts = {k: Fact(**v) for k, v in raw.get("facts", {}).items()}
             self.conflicts = {k: Conflict(**v) for k, v in raw.get("conflicts", {}).items()}
@@ -94,7 +136,7 @@ class InMemoryRepository:
             self.fact_audit_log = defaultdict(
                 list,
                 {
-                    k: [FactAuditEntry(**entry) for entry in entries]
+                    k: [FactAuditEntry(**e) for e in entries]
                     for k, entries in raw.get("fact_audit_log", {}).items()
                 },
             )
@@ -102,29 +144,15 @@ class InMemoryRepository:
             self.file_signatures = {k: int(v) for k, v in raw.get("file_signatures", {}).items()}
             self.integrity_report = {
                 "ok": True,
-                "message": "state file loaded",
+                "message": "sqlite state loaded",
                 "backup_path": None,
             }
-        except (JSONDecodeError, ValidationError, ValueError, TypeError) as exc:
-            backup_path = self._backup_corrupt_state()
-            self.sources = {}
-            self.facts = {}
-            self.conflicts = {}
-            self.rules = {}
-            self.fact_audit_log = defaultdict(list)
-            self.path_index = defaultdict(list)
-            self.file_signatures = {}
+        except (json.JSONDecodeError, ValidationError, ValueError, TypeError) as exc:
             self.integrity_report = {
                 "ok": False,
-                "message": f"state file reset after integrity error: {exc}",
-                "backup_path": str(backup_path) if backup_path else None,
+                "message": f"sqlite state reset after integrity error: {exc}",
+                "backup_path": None,
             }
-            self.save()
 
-    def _backup_corrupt_state(self) -> Path | None:
-        if not self.persist_path or not self.persist_path.exists():
-            return None
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        backup_path = self.persist_path.with_suffix(f".corrupt-{timestamp}.json")
-        self.persist_path.rename(backup_path)
-        return backup_path
+    def close(self) -> None:
+        self._conn.close()

@@ -23,8 +23,9 @@ class ConflictEngine:
     def __init__(self, repo: InMemoryRepository) -> None:
         self.repo = repo
 
-    def list_open(self):
-        return [c for c in self.repo.conflicts.values() if c.status == ConflictStatus.OPEN]
+    def list_by_statuses(self, statuses: set[ConflictStatus] | None = None):
+        effective = statuses or {ConflictStatus.OPEN}
+        return [c for c in self.repo.conflicts.values() if c.status in effective]
 
     def auto_resolve(self, conflict_id: str) -> tuple[bool, str | None]:
         conflict = self.repo.conflicts[conflict_id]
@@ -32,8 +33,13 @@ class ConflictEngine:
         if len(candidates) < 2:
             return False, None
 
-        resolved_fact_id = self._resolve_by_rule(candidates)
+        resolved_fact_id, matched_rule_id = self._resolve_by_rule(candidates)
         if resolved_fact_id:
+            if matched_rule_id and matched_rule_id in self.repo.rules:
+                rule = self.repo.rules[matched_rule_id]
+                rule.usage_count += 1
+                rule.success_count += 1
+                rule.last_applied_at = datetime.now(timezone.utc)
             self._apply_resolution(conflict_id, resolved_fact_id, auto_resolved=True, strategy="rule")
             return True, "rule"
 
@@ -53,27 +59,68 @@ class ConflictEngine:
         return False, None
 
     def resolve(self, conflict_id: str, selected_fact_id: str, create_rule: bool, rule_name: str | None):
+        conflict = self.repo.conflicts[conflict_id]
+        selected = self.repo.facts[selected_fact_id]
+        selected_source = self._source_system_for_fact(selected)
+
         self._apply_resolution(
             conflict_id=conflict_id,
             selected_fact_id=selected_fact_id,
             auto_resolved=False,
             strategy="manual",
         )
+        self._apply_human_feedback_to_rules(conflict, selected_source)
 
         created_rule = None
         if create_rule:
-            selected = self.repo.facts[selected_fact_id]
-            selected_source = self._source_system_for_fact(selected)
-            created_rule = ResolutionRule(
+            created_rule = self.create_rule(
                 name=rule_name or "manual-resolution-rule",
                 namespace=Namespace(selected.namespace),
                 predicate=selected.predicate,
                 preferred_source_system=selected_source,
                 strategy="prefer_source_system",
             )
-            self.repo.add_rule(created_rule)
 
         return self.repo.conflicts[conflict_id], created_rule
+
+    def escalate(
+        self,
+        conflict_id: str,
+        actor: str,
+        reason: str | None,
+        assigned_to: str | None,
+        priority: str | None,
+    ):
+        conflict = self.repo.conflicts[conflict_id]
+        if conflict.status == ConflictStatus.RESOLVED:
+            return conflict
+        conflict.status = ConflictStatus.ESCALATED
+        conflict.escalated_at = datetime.now(timezone.utc)
+        conflict.escalated_by = actor
+        conflict.escalation_reason = reason
+        conflict.assigned_to = assigned_to
+        if priority:
+            conflict.priority = priority
+        self.repo.save()
+        return conflict
+
+    def create_rule(
+        self,
+        name: str,
+        namespace: Namespace | None,
+        predicate: str | None,
+        preferred_source_system: str | None,
+        strategy: str,
+    ) -> ResolutionRule:
+        rule = ResolutionRule(
+            name=name,
+            namespace=namespace,
+            predicate=predicate,
+            preferred_source_system=preferred_source_system.lower() if preferred_source_system else None,
+            strategy=strategy,
+        )
+        self.repo.add_rule(rule)
+        return rule
 
     def _apply_resolution(
         self,
@@ -93,9 +140,9 @@ class ConflictEngine:
         conflict.resolution_strategy = strategy
         self.repo.save()
 
-    def _resolve_by_rule(self, candidates) -> str | None:
+    def _resolve_by_rule(self, candidates) -> tuple[str | None, str | None]:
         if not candidates:
-            return None
+            return None, None
         namespace = candidates[0].namespace
         predicate = candidates[0].predicate
 
@@ -113,8 +160,32 @@ class ConflictEngine:
                 fact.id for fact in candidates if self._source_system_for_fact(fact) == rule.preferred_source_system
             ]
             if len(matches) == 1:
-                return matches[0]
-        return None
+                return matches[0], rule.id
+        return None, None
+
+    def _apply_human_feedback_to_rules(self, conflict, selected_source: str) -> None:
+        candidates = [self.repo.facts[fact_id] for fact_id in conflict.candidate_fact_ids if fact_id in self.repo.facts]
+        if not candidates:
+            return
+        namespace = candidates[0].namespace
+        predicate = candidates[0].predicate
+        updated = False
+        for rule in self.repo.rules.values():
+            if rule.strategy != "prefer_source_system":
+                continue
+            if rule.namespace is not None and rule.namespace != namespace:
+                continue
+            if rule.predicate is not None and rule.predicate != predicate:
+                continue
+            if not rule.preferred_source_system:
+                continue
+            rule.usage_count += 1
+            if rule.preferred_source_system.lower() == selected_source.lower():
+                rule.success_count += 1
+            rule.last_applied_at = datetime.now(timezone.utc)
+            updated = True
+        if updated:
+            self.repo.save()
 
     def _resolve_by_authority(self, candidates) -> str | None:
         ranked = []

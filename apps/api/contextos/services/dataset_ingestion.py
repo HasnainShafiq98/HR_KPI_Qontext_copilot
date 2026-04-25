@@ -5,11 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from contextos.domain.models import SourceRecord
+from contextos.domain.models import FactStatus, SourceRecord
 from contextos.services.ingestion import IngestionService
 
 
 class DatasetIngestionService:
+    MAX_FILES_CAP = 5000
+    MAX_RECORDS_PER_FILE_CAP = 10000
+
     def __init__(self, ingestion: IngestionService) -> None:
         self.ingestion = ingestion
 
@@ -34,6 +37,7 @@ class DatasetIngestionService:
         include_extensions: list[str] | None = None,
         max_files: int | None = None,
         max_records_per_file: int | None = None,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         return self._ingest_internal(
             root_path=root_path,
@@ -41,6 +45,7 @@ class DatasetIngestionService:
             max_files=max_files,
             max_records_per_file=max_records_per_file,
             changed_only=True,
+            dry_run=dry_run,
         )
 
     def _ingest_internal(
@@ -50,9 +55,12 @@ class DatasetIngestionService:
         max_files: int | None = None,
         max_records_per_file: int | None = None,
         changed_only: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         root = Path(root_path)
         extensions = self._normalize_extensions(include_extensions or ["json", "csv", "pdf"])
+        max_files = self._bounded(max_files, self.MAX_FILES_CAP)
+        max_records_per_file = self._bounded(max_records_per_file, self.MAX_RECORDS_PER_FILE_CAP)
 
         files = [
             p
@@ -62,6 +70,8 @@ class DatasetIngestionService:
 
         if max_files is not None:
             files = files[:max_files]
+
+        scanned_file_keys = {str(p) for p in files}
 
         summary = {
             "root_path": str(root),
@@ -75,7 +85,30 @@ class DatasetIngestionService:
             "conflicts_created": 0,
             "files_skipped": [],
             "errors": [],
+            "dry_run": dry_run,
+            "file_diffs": [],
         }
+
+        if changed_only:
+            removed_files = sorted(set(self.ingestion.repo.file_signatures.keys()) - scanned_file_keys)
+            if removed_files:
+                for removed_file in removed_files:
+                    stale_count = self._mark_facts_stale_for_removed_file(removed_file, dry_run=dry_run)
+                    summary["files_changed"] += 1
+                    summary["files_processed"] += 1
+                    summary["file_diffs"].append(
+                        {
+                            "file": removed_file,
+                            "status": "removed",
+                            "sources_ingested": 0,
+                            "facts_created": 0,
+                            "conflicts_created": 0,
+                            "error": None if stale_count >= 0 else "failed to reconcile removed file",
+                        }
+                    )
+                    if not dry_run:
+                        self.ingestion.repo.file_signatures.pop(removed_file, None)
+                        self.ingestion.repo.save()
 
         for file_path in files:
             try:
@@ -84,12 +117,46 @@ class DatasetIngestionService:
                 previous_signature = self.ingestion.repo.get_file_signature(file_key)
                 if changed_only and previous_signature == current_signature:
                     summary["files_unchanged"] += 1
+                    summary["file_diffs"].append(
+                        {
+                            "file": str(file_path),
+                            "status": "unchanged",
+                            "sources_ingested": 0,
+                            "facts_created": 0,
+                            "conflicts_created": 0,
+                            "error": None,
+                        }
+                    )
                     continue
 
                 summary["files_changed"] += 1
                 records = self._load_records(file_path, max_records_per_file)
                 if not records:
                     summary["files_skipped"].append(str(file_path))
+                    summary["file_diffs"].append(
+                        {
+                            "file": str(file_path),
+                            "status": "skipped",
+                            "sources_ingested": 0,
+                            "facts_created": 0,
+                            "conflicts_created": 0,
+                            "error": None,
+                        }
+                    )
+                    continue
+
+                if dry_run:
+                    summary["files_processed"] += 1
+                    summary["file_diffs"].append(
+                        {
+                            "file": str(file_path),
+                            "status": "changed",
+                            "sources_ingested": len(records),
+                            "facts_created": 0,
+                            "conflicts_created": 0,
+                            "error": None,
+                        }
+                    )
                     continue
 
                 source_type = self._infer_source_type(file_path)
@@ -98,6 +165,7 @@ class DatasetIngestionService:
                 file_sources = 0
                 file_facts = 0
                 file_conflicts = 0
+                file_fact_ids: list[str] = []
 
                 for idx, record in enumerate(records):
                     payload = self._normalize_payload(record, file_path, idx)
@@ -107,20 +175,50 @@ class DatasetIngestionService:
                         source_uri=f"file://{file_path}",
                         payload=payload,
                     )
-                    facts, conflicts = self.ingestion.ingest(source)
+                    facts, conflicts = self.ingestion.ingest(source, skip_graph_links=True)
                     file_sources += 1
                     file_facts += len(facts)
                     file_conflicts += len(conflicts)
+                    file_fact_ids.extend(f.id for f in facts)
+
+                # Build graph links once per file (much faster than per-record)
+                self.ingestion.build_graph_links(file_fact_ids)
+                self.ingestion.repo.save()
 
                 summary["sources_ingested"] += file_sources
                 summary["facts_created"] += file_facts
                 summary["conflicts_created"] += file_conflicts
                 summary["files_processed"] += 1
                 self.ingestion.repo.set_file_signature(file_key, current_signature)
+                summary["file_diffs"].append(
+                    {
+                        "file": str(file_path),
+                        "status": "changed",
+                        "sources_ingested": file_sources,
+                        "facts_created": file_facts,
+                        "conflicts_created": file_conflicts,
+                        "error": None,
+                    }
+                )
             except Exception as exc:  # pragma: no cover - best-effort ingest
                 summary["errors"].append({"file": str(file_path), "error": str(exc)})
+                summary["file_diffs"].append(
+                    {
+                        "file": str(file_path),
+                        "status": "error",
+                        "sources_ingested": 0,
+                        "facts_created": 0,
+                        "conflicts_created": 0,
+                        "error": str(exc),
+                    }
+                )
 
         return summary
+
+    def _bounded(self, value: int | None, cap: int) -> int | None:
+        if value is None:
+            return None
+        return max(1, min(value, cap))
 
     def _normalize_extensions(self, include_extensions: list[str]) -> set[str]:
         return {ext.lower().lstrip(".") for ext in include_extensions if ext.strip()}
@@ -233,3 +331,25 @@ class DatasetIngestionService:
         if isinstance(value, dict):
             return value
         return {"value": str(value)}
+
+    def _mark_facts_stale_for_removed_file(self, file_path: str, dry_run: bool) -> int:
+        stale_count = 0
+        for fact in self.ingestion.repo.facts.values():
+            matched_source_ids = []
+            for source_id in fact.source_record_ids:
+                source = self.ingestion.repo.sources.get(source_id)
+                if not source:
+                    continue
+                source_file = str(source.payload.get("source_file", ""))
+                if source_file == file_path:
+                    matched_source_ids.append(source_id)
+            if not matched_source_ids:
+                continue
+            if dry_run:
+                stale_count += 1
+                continue
+            fact.status = FactStatus.STALE
+            stale_count += 1
+        if stale_count and not dry_run:
+            self.ingestion.repo.save()
+        return stale_count
