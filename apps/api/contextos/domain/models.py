@@ -55,6 +55,8 @@ class Conflict(BaseModel):
     status: ConflictStatus = ConflictStatus.OPEN
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_fact_id: str | None = None
+    auto_resolved: bool = False
+    resolution_strategy: str | None = None
 
 
 class ResolutionRule(BaseModel):
