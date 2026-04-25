@@ -7,6 +7,9 @@
 - `POST /ingest`
   - body: `IngestRequest`
   - result: ingestion summary
+- `POST /ingest/dataset`
+  - body: `DatasetIngestRequest`
+  - result: bulk ingestion summary (`files_processed`, `sources_ingested`, `facts_created`, `conflicts_created`)
 
 ## Facts
 - `GET /facts`

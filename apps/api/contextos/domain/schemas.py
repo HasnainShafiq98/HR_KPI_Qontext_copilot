@@ -16,6 +16,25 @@ class IngestResponse(BaseModel):
     conflicts_created: int
 
 
+class DatasetIngestRequest(BaseModel):
+    root_path: str = "data/Dataset"
+    include_extensions: list[str] = Field(default_factory=lambda: ["json", "csv", "pdf"])
+    max_files: int | None = None
+    max_records_per_file: int | None = None
+
+
+class DatasetIngestResponse(BaseModel):
+    root_path: str
+    extensions: list[str]
+    files_scanned: int
+    files_processed: int
+    sources_ingested: int
+    facts_created: int
+    conflicts_created: int
+    files_skipped: list[str]
+    errors: list[dict]
+
+
 class QueryRequest(BaseModel):
     text: str
     namespace: Namespace | None = None

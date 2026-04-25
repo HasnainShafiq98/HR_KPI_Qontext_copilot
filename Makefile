@@ -1,4 +1,4 @@
-.PHONY: api-install api-run api-test web-run sample-ingest
+.PHONY: api-install api-run api-test web-run sample-ingest dataset-ingest
 
 api-install:
 	cd apps/api && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
@@ -14,3 +14,8 @@ web-run:
 
 sample-ingest:
 	./scripts/bootstrap_sample_data.sh
+
+dataset-ingest:
+	curl -sS -X POST "http://localhost:8000/ingest/dataset" \
+	  -H 'Content-Type: application/json' \
+	  -d '{"root_path":"data/Dataset","include_extensions":["json","csv","pdf"]}' | python3 -m json.tool

@@ -2,7 +2,14 @@ from fastapi import APIRouter, HTTPException
 
 from contextos.core.container import container
 from contextos.domain.models import SourceRecord
-from contextos.domain.schemas import IngestRequest, IngestResponse, QueryRequest, ResolveConflictRequest
+from contextos.domain.schemas import (
+    DatasetIngestRequest,
+    DatasetIngestResponse,
+    IngestRequest,
+    IngestResponse,
+    QueryRequest,
+    ResolveConflictRequest,
+)
 
 router = APIRouter()
 
@@ -21,6 +28,17 @@ def ingest(payload: IngestRequest):
         facts_created=len(facts),
         conflicts_created=len(conflicts),
     )
+
+
+@router.post('/ingest/dataset', response_model=DatasetIngestResponse)
+def ingest_dataset(payload: DatasetIngestRequest):
+    summary = container.dataset_ingestion.ingest_dataset(
+        root_path=payload.root_path,
+        include_extensions=payload.include_extensions,
+        max_files=payload.max_files,
+        max_records_per_file=payload.max_records_per_file,
+    )
+    return DatasetIngestResponse(**summary)
 
 
 @router.get('/facts')

@@ -13,5 +13,8 @@ __pycache__/
 data/processed/*
 data/conflicts/*
 
+# Entire local overrides
+.entire/settings.local.json
+
 # Node if added later
 node_modules/
