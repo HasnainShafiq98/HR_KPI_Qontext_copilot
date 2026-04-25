@@ -4,7 +4,7 @@ import { ConfidencePill, SourceBadge, NodeTypeBadge, timeAgo } from "@/component
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listFacts, type ApiFact } from "@/lib/api";
+import { listFactsUpTo, type ApiFact } from "@/lib/api";
 import { deriveEdges, factsToEntities, type UiEdge, type UiEntity } from "@/lib/adapters";
 
 export const Route = createFileRoute("/graph")({
@@ -61,7 +61,7 @@ function GraphPage() {
       setLoading(true);
       setError(null);
       try {
-        setFacts(await listFacts());
+        setFacts(await listFactsUpTo({ maxItems: 2000, pageSize: 500 }));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load facts");
       } finally {

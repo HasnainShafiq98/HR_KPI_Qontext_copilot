@@ -20,6 +20,37 @@ class DatasetIngestionService:
         max_files: int | None = None,
         max_records_per_file: int | None = None,
     ) -> dict[str, Any]:
+        return self._ingest_internal(
+            root_path=root_path,
+            include_extensions=include_extensions,
+            max_files=max_files,
+            max_records_per_file=max_records_per_file,
+            changed_only=False,
+        )
+
+    def sync_dataset(
+        self,
+        root_path: str,
+        include_extensions: list[str] | None = None,
+        max_files: int | None = None,
+        max_records_per_file: int | None = None,
+    ) -> dict[str, Any]:
+        return self._ingest_internal(
+            root_path=root_path,
+            include_extensions=include_extensions,
+            max_files=max_files,
+            max_records_per_file=max_records_per_file,
+            changed_only=True,
+        )
+
+    def _ingest_internal(
+        self,
+        root_path: str,
+        include_extensions: list[str] | None = None,
+        max_files: int | None = None,
+        max_records_per_file: int | None = None,
+        changed_only: bool = False,
+    ) -> dict[str, Any]:
         root = Path(root_path)
         extensions = self._normalize_extensions(include_extensions or ["json", "csv", "pdf"])
 
@@ -37,6 +68,8 @@ class DatasetIngestionService:
             "extensions": sorted(extensions),
             "files_scanned": len(files),
             "files_processed": 0,
+            "files_changed": 0,
+            "files_unchanged": 0,
             "sources_ingested": 0,
             "facts_created": 0,
             "conflicts_created": 0,
@@ -46,6 +79,14 @@ class DatasetIngestionService:
 
         for file_path in files:
             try:
+                file_key = str(file_path)
+                current_signature = int(file_path.stat().st_mtime_ns)
+                previous_signature = self.ingestion.repo.get_file_signature(file_key)
+                if changed_only and previous_signature == current_signature:
+                    summary["files_unchanged"] += 1
+                    continue
+
+                summary["files_changed"] += 1
                 records = self._load_records(file_path, max_records_per_file)
                 if not records:
                     summary["files_skipped"].append(str(file_path))
@@ -75,6 +116,7 @@ class DatasetIngestionService:
                 summary["facts_created"] += file_facts
                 summary["conflicts_created"] += file_conflicts
                 summary["files_processed"] += 1
+                self.ingestion.repo.set_file_signature(file_key, current_signature)
             except Exception as exc:  # pragma: no cover - best-effort ingest
                 summary["errors"].append({"file": str(file_path), "error": str(exc)})
 

@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.venv313/
 .pytest_cache/
 
 # OS
@@ -18,3 +19,4 @@ data/conflicts/*
 
 # Node if added later
 node_modules/
+.vite/
