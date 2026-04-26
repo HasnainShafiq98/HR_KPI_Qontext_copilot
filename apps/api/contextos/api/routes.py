@@ -101,13 +101,14 @@ async def ingest_upload(
         saved: list[str] = []
         for upload in files:
             filename = upload.filename or "upload"
-            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            safe_filename = os.path.basename(filename)
+            ext = safe_filename.rsplit(".", 1)[-1].lower() if "." in safe_filename else ""
             if ext not in ALLOWED:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported file type: {filename!r}. Allowed: json, csv, pdf",
                 )
-            dest = os.path.join(tmp_dir, filename)
+            dest = os.path.join(tmp_dir, safe_filename)
             with open(dest, "wb") as fh:
                 content = await upload.read()
                 fh.write(content)
