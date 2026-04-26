@@ -14,6 +14,10 @@ __pycache__/
 data/processed/*
 data/conflicts/*
 
+# NOTE: data/Dataset/ contains AI-generated synthetic data for hackathon demos.
+# These files intentionally contain fake emails, phone numbers, UUIDs, and IDs.
+# Secret scanner alerts on this directory are FALSE POSITIVES — see .snyk for suppressions.
+
 # Entire local overrides
 .entire/settings.local.json
 
