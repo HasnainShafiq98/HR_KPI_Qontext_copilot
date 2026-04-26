@@ -21,6 +21,8 @@ class DatasetIngestRequest(BaseModel):
     include_extensions: list[str] = Field(default_factory=lambda: ["json", "csv", "pdf"])
     max_files: int | None = Field(default=500, ge=1, le=5000)
     max_records_per_file: int | None = Field(default=1000, ge=1, le=10000)
+    sample_records_per_file: int | None = Field(default=45, ge=1, le=500)
+    sample_seed: int | None = None
 
 
 class FileDiffSummary(BaseModel):
@@ -45,6 +47,8 @@ class DatasetIngestResponse(BaseModel):
     files_skipped: list[str]
     errors: list[dict]
     file_diffs: list[FileDiffSummary] = Field(default_factory=list)
+    sample_records_per_file: int | None = None
+    sample_seed: int | None = None
 
 
 class SyncDatasetRequest(BaseModel):
@@ -53,6 +57,8 @@ class SyncDatasetRequest(BaseModel):
     max_files: int | None = Field(default=500, ge=1, le=5000)
     max_records_per_file: int | None = Field(default=1000, ge=1, le=10000)
     dry_run: bool = False
+    sample_records_per_file: int | None = Field(default=45, ge=1, le=500)
+    sample_seed: int | None = None
 
 
 class SyncDatasetResponse(BaseModel):
@@ -69,6 +75,8 @@ class SyncDatasetResponse(BaseModel):
     errors: list[dict]
     dry_run: bool = False
     file_diffs: list[FileDiffSummary] = Field(default_factory=list)
+    sample_records_per_file: int | None = None
+    sample_seed: int | None = None
 
 
 class QueryRequest(BaseModel):
