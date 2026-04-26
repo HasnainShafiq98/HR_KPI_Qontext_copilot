@@ -1,0 +1,12 @@
+# Snyk (https://snyk.io) policy file
+# This file is used to suppress false positive secret scan findings
+# on synthetic/AI-generated dataset files used for hackathon demos.
+
+version: v1.25.0
+
+# Suppress secret scanning false positives in synthetic dataset files
+exclude:
+  code:
+    - data/Dataset/Business_and_Management/clients.json
+    - data/Dataset/Workspace/GitHub/GitHub.json
+    - data/Dataset/**
