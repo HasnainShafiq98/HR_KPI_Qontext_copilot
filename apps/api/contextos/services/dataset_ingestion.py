@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,8 @@ from contextos.services.ingestion import IngestionService
 class DatasetIngestionService:
     MAX_FILES_CAP = 5000
     MAX_RECORDS_PER_FILE_CAP = 10000
+    DEFAULT_SAMPLE_SIZE = 45
+    SAMPLE_SIZE_CAP = 500
 
     def __init__(self, ingestion: IngestionService) -> None:
         self.ingestion = ingestion
@@ -22,6 +25,8 @@ class DatasetIngestionService:
         include_extensions: list[str] | None = None,
         max_files: int | None = None,
         max_records_per_file: int | None = None,
+        sample_records_per_file: int | None = None,
+        sample_seed: int | None = None,
     ) -> dict[str, Any]:
         return self._ingest_internal(
             root_path=root_path,
@@ -29,6 +34,8 @@ class DatasetIngestionService:
             max_files=max_files,
             max_records_per_file=max_records_per_file,
             changed_only=False,
+            sample_records_per_file=sample_records_per_file,
+            sample_seed=sample_seed,
         )
 
     def sync_dataset(
@@ -38,6 +45,8 @@ class DatasetIngestionService:
         max_files: int | None = None,
         max_records_per_file: int | None = None,
         dry_run: bool = False,
+        sample_records_per_file: int | None = None,
+        sample_seed: int | None = None,
     ) -> dict[str, Any]:
         return self._ingest_internal(
             root_path=root_path,
@@ -46,6 +55,8 @@ class DatasetIngestionService:
             max_records_per_file=max_records_per_file,
             changed_only=True,
             dry_run=dry_run,
+            sample_records_per_file=sample_records_per_file,
+            sample_seed=sample_seed,
         )
 
     def _ingest_internal(
@@ -56,11 +67,22 @@ class DatasetIngestionService:
         max_records_per_file: int | None = None,
         changed_only: bool = False,
         dry_run: bool = False,
+        sample_records_per_file: int | None = None,
+        sample_seed: int | None = None,
     ) -> dict[str, Any]:
-        root = Path(root_path)
+        _given = Path(root_path)
+        if _given.is_absolute():
+            root = _given
+        else:
+            # Resolve relative paths from the repo root (two levels above apps/api/)
+            # so "data/Dataset" works regardless of where uvicorn is launched from.
+            _repo_root = Path(__file__).parents[4]
+            root = (_repo_root / _given).resolve()
         extensions = self._normalize_extensions(include_extensions or ["json", "csv", "pdf"])
         max_files = self._bounded(max_files, self.MAX_FILES_CAP)
         max_records_per_file = self._bounded(max_records_per_file, self.MAX_RECORDS_PER_FILE_CAP)
+        sample_size = self._bounded(sample_records_per_file, self.SAMPLE_SIZE_CAP)
+        rng = random.Random(sample_seed)
 
         files = [
             p
@@ -87,6 +109,8 @@ class DatasetIngestionService:
             "errors": [],
             "dry_run": dry_run,
             "file_diffs": [],
+            "sample_records_per_file": sample_size,
+            "sample_seed": sample_seed,
         }
 
         if changed_only:
@@ -130,7 +154,7 @@ class DatasetIngestionService:
                     continue
 
                 summary["files_changed"] += 1
-                records = self._load_records(file_path, max_records_per_file)
+                records = self._load_records(file_path, max_records_per_file, sample_size, rng)
                 if not records:
                     summary["files_skipped"].append(str(file_path))
                     summary["file_diffs"].append(
@@ -223,7 +247,13 @@ class DatasetIngestionService:
     def _normalize_extensions(self, include_extensions: list[str]) -> set[str]:
         return {ext.lower().lstrip(".") for ext in include_extensions if ext.strip()}
 
-    def _load_records(self, file_path: Path, max_records_per_file: int | None) -> list[dict[str, Any]]:
+    def _load_records(
+        self,
+        file_path: Path,
+        max_records_per_file: int | None,
+        sample_size: int | None = None,
+        rng: random.Random | None = None,
+    ) -> list[dict[str, Any]]:
         ext = file_path.suffix.lower()
         records: list[dict[str, Any]]
 
@@ -256,6 +286,10 @@ class DatasetIngestionService:
 
         else:
             return []
+
+        if sample_size is not None and len(records) > sample_size:
+            _rng = rng if rng is not None else random.Random()
+            records = _rng.sample(records, sample_size)
 
         if max_records_per_file is not None:
             return records[:max_records_per_file]

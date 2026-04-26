@@ -23,7 +23,7 @@ This repository contains an MVP boilerplate for:
 
 ```bash
 cd apps/api
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -38,6 +38,18 @@ uvicorn contextos.api.main:app --reload --port 8000
 
 ```bash
 make dataset-ingest
+```
+
+This runs in demo mode: 45 records are randomly sampled per file (seed 42) so ingestion completes in seconds rather than hours. To ingest all records without sampling:
+
+```bash
+make dataset-ingest-full
+```
+
+To control sampling from the shell:
+
+```bash
+SAMPLE_SIZE=30 SAMPLE_SEED=7 ./scripts/ingest_dataset.sh
 ```
 
 Then visit:

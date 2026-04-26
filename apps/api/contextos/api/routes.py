@@ -81,6 +81,8 @@ def ingest_dataset(payload: DatasetIngestRequest):
         include_extensions=payload.include_extensions,
         max_files=payload.max_files,
         max_records_per_file=payload.max_records_per_file,
+        sample_records_per_file=payload.sample_records_per_file,
+        sample_seed=payload.sample_seed,
     )
     return DatasetIngestResponse(**summary)
 
@@ -88,6 +90,8 @@ def ingest_dataset(payload: DatasetIngestRequest):
 @router.post('/ingest/upload', response_model=DatasetIngestResponse)
 async def ingest_upload(
     files: list[UploadFile] = File(...),
+    sample_records_per_file: int | None = Query(default=45, ge=1, le=500),
+    sample_seed: int | None = Query(default=None),
     _: None = Depends(_check_api_key),
 ):
     """Upload one or more JSON / CSV / PDF files and ingest them immediately.
@@ -120,6 +124,8 @@ async def ingest_upload(
         summary = container.dataset_ingestion.ingest_dataset(
             root_path=tmp_dir,
             include_extensions=list(ALLOWED),
+            sample_records_per_file=sample_records_per_file,
+            sample_seed=sample_seed,
         )
         # Replace the temp path in the response so the UI shows the original filenames
         summary["root_path"] = "uploaded files"
@@ -136,6 +142,8 @@ def sync_dataset(payload: SyncDatasetRequest):
         max_files=payload.max_files,
         max_records_per_file=payload.max_records_per_file,
         dry_run=payload.dry_run,
+        sample_records_per_file=payload.sample_records_per_file,
+        sample_seed=payload.sample_seed,
     )
     return SyncDatasetResponse(**summary)
 
