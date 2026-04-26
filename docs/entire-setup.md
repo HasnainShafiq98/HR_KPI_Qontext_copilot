@@ -1,13 +1,13 @@
 # Entire CLI Setup for ContextOS
 
-This repo is prepared to work with Entire so Codex sessions can be checkpointed with commits.
+Use Entire if you want Codex session checkpointing and rewind support while working in this repository.
 
 ## 1. Install Entire CLI
 
-Choose one:
+Choose one installation method:
 
 ```bash
-# Homebrew stable
+# Homebrew
 brew tap entireio/tap
 brew install --cask entire
 
@@ -15,34 +15,36 @@ brew install --cask entire
 curl -fsSL https://entire.io/install.sh | bash
 ```
 
-## 2. Enable in this repository
+## 2. Enable Entire in this repository
 
-From repo root:
+From repository root:
 
 ```bash
 entire enable --agent codex
 entire status
 ```
 
-If your Entire version does not support `codex`, run:
+If your CLI version does not support `--agent codex`, run:
 
 ```bash
 entire enable
 ```
 
-and choose the available Codex/OpenAI option interactively.
+Then select the closest Codex/OpenAI agent option interactively.
 
-## 3. Optional: disable telemetry
+## 3. Optional configuration
+
+Disable telemetry:
 
 ```bash
 entire configure --telemetry=false
 ```
 
-## 4. Team behavior
+## 4. Team workflow notes
 
-- Entire stores session metadata on a separate checkpoint branch.
-- Your working branch commit history remains clean.
-- Use `entire rewind` to roll back to prior AI checkpoints.
+- Entire stores session metadata on its own checkpoint branch.
+- Your feature branch history remains focused on project commits.
+- Use `entire rewind` to restore an earlier AI checkpoint when needed.
 
 ## References
 

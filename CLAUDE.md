@@ -5,66 +5,87 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ### Backend (FastAPI, Python 3.10+)
+
 ```bash
 # Setup
-cd apps/api && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+cd apps/api
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-# Run API (port 8000)
+# Run API
 uvicorn contextos.api.main:app --reload --port 8000
-# or: make api-run
+# or from repo root: make api-run
 
 # Tests
-cd apps/api && pytest -q
-# Single test: pytest tests/test_ingestion.py::test_name -q
+pytest -q
+# Single test example:
+pytest tests/test_dataset_ingest.py::test_dataset_ingest_endpoint -q
 
-# Ingest sample data (API must be running)
+# Ingest sample dataset (API must be running)
+cd /path/to/repo
 make dataset-ingest
 ```
 
 ### Frontend (React 19 + Vite)
+
 ```bash
 cd apps/front-end
 npm install
-npm run dev       # dev server
-npm run build     # production build
-npm run lint      # ESLint
-npm run format    # Prettier
+npm run dev
+npm run build
+npm run lint
+npm run format
+```
+
+If needed:
+
+```bash
+export VITE_API_BASE_URL=http://localhost:8000
 ```
 
 ## Architecture
 
-**ContextOS** is an enterprise knowledge graph / memory OS that ingests fragmented data into atomic facts with conflict resolution, provenance tracking, and AI agent retrieval.
+ContextOS is an enterprise memory platform that ingests fragmented records into atomic facts with provenance tracking, conflict governance, and retrieval for AI/human workflows.
 
 ### Backend (`apps/api/contextos/`)
 
-**Layers:**
-- `api/` — FastAPI routes and app init. 40+ REST endpoints.
-- `domain/` — Core models (`Fact`, `Conflict`, `SourceRecord`, `ResolutionRule`) and Pydantic schemas.
-- `services/` — Business logic: ingestion, conflict resolution, retrieval, provenance, metrics.
-- `storage/` — `InMemoryRepository` (default, JSON-persisted to `data/processed/`) or `SqliteRepository` (set `CONTEXTOS_STORAGE_BACKEND=sqlite`).
-- `core/container.py` — Singleton DI container; all services are instantiated here and injected into routes.
+Layers:
 
-**Key services:**
-- `IngestionService` — Extracts atomic facts, infers namespace (`static`/`procedural`/`trajectory`), builds graph edges (linked facts).
-- `ConflictEngine` — Auto-resolves conflicts via authority ranking (HRMS > HR > Policy > ITSM > CRM > Email), recency (trajectory namespace), or rules.
-- `RetrievalService` — Text + filter-based fact queries with confidence scoring.
-- `ProvenanceService` — Lineage from fact → source records + audit trail for manual edits.
+- `api/` - FastAPI routes and app setup.
+- `domain/` - models and request/response schemas.
+- `services/` - ingestion, conflict engine, retrieval, provenance, and metrics logic.
+- `storage/` - JSON-backed in-memory repository (default) and SQLite-backed repository option.
+- `core/container.py` - singleton dependency container wiring services together.
 
-**Auth:** Optional `X-Api-Key` header; controlled by `CONTEXTOS_API_KEY` env var.
+Storage behavior:
+
+- Default backend: JSON (`data/processed/contextos_state.json`)
+- Optional backend: SQLite (`CONTEXTOS_STORAGE_BACKEND=sqlite`)
+- Optional state override: `CONTEXTOS_STATE_FILE=/custom/path`
+
+Auth behavior:
+
+- Optional API key mode via `CONTEXTOS_API_KEY`
+- Protected endpoints (when key is set): upload ingest and graph APIs
 
 ### Frontend (`apps/front-end/src/`)
 
-File-based routing via TanStack Router. Routes:
-- `/` — Dashboard (health metrics, conflict trends)
-- `/ingest` — File upload / dataset ingestion
-- `/fs` — Virtual filesystem browser (namespace/path tree)
-- `/conflicts` — Conflict resolution queue
-- `/graph` — Knowledge graph visualization
+TanStack Router file-based routes:
 
-`lib/api.ts` contains all typed API client functions. No global state manager — React hooks + local state only. UI built on Radix UI primitives + Tailwind CSS.
+- `/` dashboard and query panel
+- `/ingest` dataset ingest and sync controls
+- `/fs` fact browser and detail view
+- `/conflicts` conflict queue and rule management
+- `/graph` linked-fact graph exploration
 
-### Data Flow
+`src/lib/api.ts` contains typed API wrappers used by routes.
 
-Ingest → extract atomic facts → detect conflicts → auto-resolve (authority/recency/rule) → persist to repo → available for query/retrieval.
+## Data Flow
 
-Facts are keyed by `(subject, predicate, path/namespace)`. A differing `object_value` for the same key creates a `Conflict`.
+1. Ingest source records.
+2. Extract and normalize atomic facts.
+3. Detect conflicts on conflicting fact keys.
+4. Auto-resolve using rules/authority/recency where possible.
+5. Persist facts, conflicts, rules, provenance, and audits.
+6. Serve retrieval, metrics, and graph APIs to UI/agents.

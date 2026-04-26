@@ -1,68 +1,130 @@
-# Lovable Handoff (Backend Contract)
+# Lovable Handoff (Backend Integration Contract)
 
-This backend is the system of record for ContextOS memory.
-Build the UI in Lovable against the API endpoints below.
+This document is the contract for building and iterating UI against the current ContextOS backend.
 
 ## Base URL
 
-- Local: `http://localhost:8000`
+- Local API: `http://localhost:8000`
+- Local frontend default: `http://localhost:5173`
 
-## Core Endpoints
+## Auth Model
 
-1. `GET /health`
-- Service health check.
+MVP auth is optional.
 
-2. `POST /ingest/dataset`
-- Bulk ingests local dataset files.
-- Example body:
+- If backend env `CONTEXTOS_API_KEY` is unset: no API key required.
+- If set: include header `X-Api-Key: <value>` for protected endpoints:
+  - `POST /ingest/upload`
+  - `GET /facts/{fact_id}/neighbors`
+  - `GET /graph/stats`
+
+## Core Endpoints For UI
+
+### Health + dashboard cards
+
+- `GET /health`
+- `GET /metrics/context-health`
+- `GET /metrics/ingestion-progress`
+
+### Ingest page
+
+- `POST /ingest/dataset`
+- `POST /sync/dataset`
+- `POST /ingest/upload` (multipart files)
+
+Useful request defaults:
 
 ```json
 {
   "root_path": "data/Dataset",
   "include_extensions": ["json", "csv", "pdf"],
-  "max_files": null,
-  "max_records_per_file": null
+  "sample_records_per_file": 45,
+  "sample_seed": 42
 }
 ```
 
-3. `GET /metrics/context-health`
-- Dashboard card: confidence distribution + conflict counters.
+Sync supports `dry_run` for preview-only execution.
 
-4. `GET /metrics/ingestion-progress`
-- Dashboard card: ingestion progress stats.
+### Memory browser (`/fs`)
 
-5. `GET /facts?namespace=static|procedural|trajectory`
-- File-system browser list.
+- `GET /facts/paged?namespace=<static|procedural|trajectory>&offset=0&limit=200`
+- `GET /facts/{fact_id}`
+- `PATCH /facts/{fact_id}`
 
-6. `GET /facts/{fact_id}`
-- Detail drawer: fact + provenance + linked facts.
+`GET /facts/{fact_id}` includes:
 
-7. `GET /conflicts`
-- Conflict queue table.
+- `fact`
+- `provenance[]`
+- `linked_facts[]`
+- `audit_trail[]`
 
-8. `POST /conflicts/{conflict_id}/resolve`
-- Resolve conflict and optionally create a reusable rule.
+### Conflict queue (`/conflicts`)
 
-9. `POST /query`
-- Agent-style retrieval endpoint.
+- `GET /conflicts?include_candidates=true&statuses=open,escalated,resolved`
+- `POST /conflicts/{conflict_id}/resolve`
 
-## Suggested Lovable Screens
+Resolve action body:
 
-1. Context Health Dashboard
-- Ingestion progress, open conflicts, confidence average.
+```json
+{
+  "action": "resolve",
+  "selected_fact_id": "<fact_id>",
+  "create_rule": true,
+  "rule_name": "Prefer HRMS for employee title"
+}
+```
 
-2. Memory Browser
-- Three root buckets: `/static`, `/procedural`, `/trajectory`.
-- Fact list + fact detail panel.
+Escalate action body:
 
-3. Conflict Queue
-- List unresolved conflicts and resolve actions.
+```json
+{
+  "action": "escalate",
+  "actor": "analyst",
+  "assigned_to": "data-steward",
+  "priority": "high",
+  "escalation_reason": "Conflicting source values"
+}
+```
 
-4. Agent Query Console
-- Text query + results with confidence and provenance.
+Rules management:
+
+- `GET /rules`
+- `POST /rules`
+- `DELETE /rules/{rule_id}`
+
+### Query console (`/` or dedicated panel)
+
+- `POST /query`
+
+Example body:
+
+```json
+{
+  "text": "What changed in IT policy this month?",
+  "limit": 20
+}
+```
+
+### Graph view (`/graph`)
+
+- `GET /facts/{fact_id}/neighbors?depth=2`
+- `GET /graph/stats`
+
+## UI Behaviors To Preserve
+
+- Always show confidence and provenance together.
+- Surface conflict status (`open`, `escalated`, `resolved`) clearly.
+- Make dry-run vs apply states explicit on sync.
+- Preserve audit history visibility for manual edits.
+- Respect server paging (`offset`, `limit`) and max limits.
+
+## Error Handling Expectations
+
+- `400` for invalid payload or unsupported upload type.
+- `401` for missing/invalid API key when protected mode is enabled.
+- `404` for unknown fact/conflict/rule IDs.
+- `5xx` as backend runtime error; show per-file failures from ingest `errors[]`.
 
 ## Notes
 
-- Facts are atomic scalar facts extracted from records.
-- PDFs are currently registered as provenance records (no OCR extraction yet).
-- UI should surface source links and confidence to preserve trust.
+- PDFs are stored as provenance-aware records (OCR/text extraction not implemented yet).
+- Dataset paths are resolved from repository root when relative (for example `data/Dataset`).

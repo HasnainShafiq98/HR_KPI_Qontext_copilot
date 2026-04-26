@@ -1,54 +1,73 @@
-# Demo Script (Challenge Judging)
+# Demo Script (Challenge / Judge Flow)
+
+Target length: 7-8 minutes.
 
 ## 0. Setup (30s)
-1. Start API and frontend (see `docs/runbook.md`).
-2. Show `/health` response including persisted `state_integrity`.
 
-## 1. Enterprise Context Ingestion (1.5m)
+1. Confirm API and frontend are live (`/health`, dashboard loads).
+2. Mention that ContextOS persists state and exposes provenance-first memory.
+
+## 1. Enterprise Ingestion (90s)
+
 1. Open `/ingest`.
-2. Run `Full ingest`.
-3. Narrate outcomes:
-   - files scanned/processed
-   - facts created
-   - conflicts created
-4. Show dashboard KPIs (`/`): facts total, confidence, open conflicts.
+2. Run dataset ingest in sampled mode.
+3. Call out returned totals:
+   - `files_processed`
+   - `sources_ingested`
+   - `facts_created`
+   - `conflicts_created`
+4. Navigate to dashboard (`/`) and point to context-health KPIs.
 
-Judging points covered: ingestion breadth, observability, data quality baseline.
+Judging themes: ingestion breadth, observability, baseline quality.
 
-## 2. Incremental Sync + Scale Safety (1.5m)
-1. Switch ingest page to `Incremental sync`.
-2. Run with `dry_run=true`.
-3. Highlight per-file diff table (`changed/unchanged/error`) with no write side effects.
-4. Run sync apply (`dry_run=false`) and show only changed files processed.
-5. Mention server guardrails: paged reads + capped limits for large queries.
+## 2. Incremental Sync Safety (90s)
 
-Judging points covered: production-readiness, scalability, operational control.
+1. Stay on `/ingest` and switch to sync.
+2. Run dry-run (`dry_run=true`) and show `file_diffs` without writes.
+3. Run apply (`dry_run=false`) and show changed-only processing.
+4. Explain large-data guardrails: paged endpoints and limit caps.
 
-## 3. Provenance-First Conflict Resolution (2m)
+Judging themes: production readiness, scalability, operational control.
+
+## 3. Conflict Governance (120s)
+
 1. Open `/conflicts`.
-2. Pick one conflict and show both candidate values + real provenance (`/facts/{id}`).
-3. Escalate one conflict to human queue, resolve another, and create reusable rule.
-4. Open rules table to show created rule and usage metrics.
+2. Pick a conflict and inspect candidate facts + provenance.
+3. Escalate one conflict with reason/assignee/priority.
+4. Resolve another conflict and create a reusable rule.
+5. Show rules table and usage metrics.
 
-Judging points covered: trust, explainability, human-in-the-loop governance.
+Judging themes: trust, explainability, human-in-the-loop workflows.
 
-## 4. Fact Editing with Audit Trail (1m)
+## 4. Fact Stewardship + Audit Trail (60s)
+
 1. Open `/fs`.
-2. Edit a fact value and status.
-3. Show provenance/audit indicators in detail pane.
-4. Confirm via API (`GET /facts/{id}`) that `audit_trail` persisted.
+2. Edit a fact value/status.
+3. Show detail panel with provenance + audit trail.
+4. Optionally verify with `GET /facts/{fact_id}`.
 
-Judging points covered: data stewardship, compliance posture, traceability.
+Judging themes: governance, compliance, traceability.
 
-## 5. Retrieval Quality (1m)
-1. In dashboard `Ask ContextOS`, run 1-2 business questions.
-2. Show top answers with confidence + source attribution.
+## 5. Retrieval Quality (60s)
 
-Judging points covered: agent-readiness and decision support quality.
+1. Use "Ask ContextOS" on dashboard.
+2. Run 1-2 business questions.
+3. Highlight scored answers with staleness flags and source attribution.
 
-## 6. Close (30s)
+Judging themes: agent readiness and decision support.
+
+## 6. Graph Exploration (45s)
+
+1. Open `/graph`.
+2. Show how one fact links to neighboring facts.
+3. Mention optional protected graph stats endpoint for backend analytics.
+
+Judging themes: knowledge connectivity and context depth.
+
+## 7. Close (30s)
+
 1. Recap:
-   - persistent memory
-   - conflict governance + rule learning
-   - incremental sync with dry-run safety
-   - provenance + auditability end-to-end
+   - persistent memory with provenance
+   - conflict governance with rule learning
+   - safe incremental sync
+   - retrieval and graph context for humans + agents

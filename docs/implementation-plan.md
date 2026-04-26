@@ -1,102 +1,100 @@
 # ContextOS Implementation Plan
 
-## 1. Problem and Scope
+## 1. Mission
 
-ContextOS creates a continuously updated enterprise memory layer where each fact is:
+ContextOS builds a continuously updated enterprise memory layer where each fact is:
+
 - atomic
 - source-linked
 - confidence-scored
 - conflict-aware
+- auditable
 
-MVP goals:
-- ingest mixed enterprise records
-- extract and normalize facts
-- expose memory through VFS-style paths
-- resolve easy conflicts automatically
-- route ambiguous conflicts to human queue
-- provide retrieval API for agents + backend contract for Lovable UI
+## 2. Current MVP Status
 
-## 2. Target Architecture
+### Delivered
 
-1. Ingestion Layer
-- Input adapters for emails, CRM rows, tickets, HR docs, policy docs
-- Normalization to canonical event envelopes
-- Fact extraction into atomic fact records
+- Dataset ingest for JSON/CSV/PDF provenance records.
+- Incremental sync with changed-file detection and dry-run mode.
+- Fact registry with provenance, audit trail, and linked-fact graph edges.
+- Conflict detection with auto-resolution strategies:
+  - rules (`prefer_source_system`)
+  - source authority (static/procedural namespaces)
+  - recency (trajectory namespace)
+- Manual conflict resolution + escalation + reusable rule creation.
+- Retrieval endpoint with TF-IDF + keyword blend and staleness flags.
+- Metrics endpoints for health and ingestion progress.
+- Frontend workflows for dashboard, ingest/sync, facts, conflicts, and graph.
 
-2. Memory Core
-- Virtual filesystem namespaces:
-  - `/static` (employees/customers/products)
-  - `/procedural` (SOPs/policies/rules)
-  - `/trajectory` (projects/tasks/progress)
-- Fact registry with confidence and timestamps
-- Graph links between facts and source records
+### In Progress / Needs Hardening
 
-3. Conflict and Provenance
-- Auto-resolution by authority + recency
-- Human conflict queue for ambiguous cases
-- Rule learning from human resolutions
-- Provenance timeline per fact
+- Authentication is partial (API key only, endpoint-scoped).
+- Persistence is single-node JSON/SQLite; no multi-tenant isolation.
+- Background workflows and queue SLO management are not implemented.
 
-4. Retrieval Interfaces
-- Agent API: structured query returning fact + confidence + provenance + staleness
-- Human UI: browse memory tree, inspect evidence, resolve conflicts
+## 3. Tooling Used In Delivery
 
-## 3. Data Contracts (MVP)
+- Entire CLI for Codex checkpointing and rewind support during iterative implementation.
+- Aikido for security monitoring and issue visibility across the development workflow.
 
-Core entities:
-- `SourceRecord`: raw source metadata + payload pointer
-- `Fact`: subject/predicate/object + path + confidence + status
-- `FactEdge`: fact-to-fact relation
-- `Conflict`: competing fact candidates + reason + queue status
-- `ResolutionRule`: reusable conflict decision rule
+## 4. Architecture Snapshot
 
-## 4. Delivery Phases
+### Ingestion Layer
 
-Phase 0: Foundation (this boilerplate)
-- repo structure, API shell, UI shell, models, stub services
+- File and payload ingestion into `SourceRecord`.
+- Source-type/system inference during dataset ingest.
+- Flat fact extraction from nested payloads.
 
-Phase 1: Ingestion + Extraction
-- add source adapters
-- implement parser and fact extractor
-- persist source provenance
-- support bulk dataset ingestion entrypoint (`POST /ingest/dataset`)
+### Memory Core
 
-Phase 2: Graph + Resolution
-- graph storage and adjacency updates
-- authority/recency conflict resolver
-- queue APIs and manual resolution flow
+- Namespaces:
+  - `/static`
+  - `/procedural`
+  - `/trajectory`
+- Fact records with confidence, status, and update timestamps.
+- Linked-fact graph built from co-subject and cross-entity links.
 
-Phase 3: Sync + Monitoring
-- incremental updates from source changes
-- confidence recalculation
-- staleness scanning
-- dashboard metrics endpoints
+### Conflict + Governance
 
-Phase 4: Harden + Scale
-- auth and RBAC
-- queue SLOs and audit trails
-- indexing and performance tuning
+- Conflict queue with `open`, `escalated`, `resolved` states.
+- Rule store with usage and success counters.
+- Fact-level audit logging for manual edits.
 
-## 5. Tooling Integration Map
+### Retrieval + Interfaces
 
-- Qontext: primary ingestion input source
-- Aikido: security posture checks for data handling and pipeline surface
-- Gradium: fact quality score before commit to memory graph
-- Entire: developer context capture during build/debug
-- Tavily: optional external enrichment/validation for uncertain facts
+- REST API for query/review/edit workflows.
+- Frontend app (`apps/front-end`) for human operations.
+
+## 5. Next Milestones
+
+### Phase 1: Security + Multi-Tenancy
+
+- Add proper authN/authZ (token/session based).
+- Add tenant boundaries in storage and API filters.
+- Expand protected endpoint coverage.
+
+### Phase 2: Operational Reliability
+
+- Move conflict/escalation flows to persistent queue workers.
+- Add retry policies and ingest job lifecycle tracking.
+- Add structured logging and alert-friendly metrics.
+
+### Phase 3: Data Quality + Policy Intelligence
+
+- Add stronger schema-aware adapters per source domain.
+- Improve policy document extraction (OCR + chunking).
+- Introduce quality scoring gates before fact promotion.
+
+### Phase 4: Scale + Performance
+
+- Add indexed storage strategy for larger fact volumes.
+- Optimize graph traversal for deeper neighborhood queries.
+- Add benchmark suite and regression budgets.
 
 ## 6. Success Metrics
 
-- Conflict auto-resolution rate
-- Human queue size and time-to-resolution
-- Median retrieval latency for agent queries
-- Share of facts with full provenance
-- Staleness ratio across namespaces
-
-## 7. Next Build Tasks
-
-1. Implement CSV/JSON adapters under `services/ingestion.py`
-2. Add SQLite/Postgres persistence in `storage/repository.py`
-3. Replace in-memory conflict queue with persistent workflow
-4. Add auth and tenant isolation
-5. Add graph UI (Cytoscape or D3) in `apps/web`
+- Conflict auto-resolution rate.
+- Human queue size and median time-to-resolution.
+- Retrieval latency and relevance quality.
+- Share of facts with full provenance and audit trace.
+- Staleness ratio over time by namespace.
